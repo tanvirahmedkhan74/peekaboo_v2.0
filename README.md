@@ -1,8 +1,9 @@
-# Peekaboo
-
-**Concordia University**
-
-Hasib Zunair, A. Ben Hamza
+# Peekaboov2.0
+### Knowledge Distillation with the Peekaboo Model for Unsupervised Object Localization
+**North South University**
+#### Tanvir Ahmed Khan, Moshiur Rahman, Shahariar Ifti, Tasin Tayeba Khan
+Based on the work of - Hasib Zunair, A. Ben Hamza
+-
 
 [[`Paper`](https://arxiv.org/abs/2407.17628)] [[`Project`](https://hasibzunair.github.io/peekaboo/)] [[`Demo`](#4-demo)] [[`BibTeX`](#5-citation)]
 
