@@ -20,6 +20,9 @@ from misc import batch_apply_bilateral_solver, set_seed, load_config, Logger
 
 from datasets.datasets import build_dataset
 
+from distillation.distillation_trainer import distillation_training
+from models.student_base_model import StudentModel
+
 
 def get_argparser():
     parser = argparse.ArgumentParser(
@@ -50,6 +53,10 @@ def get_argparser():
         type=int,
         default=10,
         help="Frequency of prediction visualization in tensorboard.",
+    )
+
+    parser.add_argument(
+        "--distillation", action="store_true", help="Use knowledge distillation for training."
     )
 
     args = parser.parse_args()
@@ -288,7 +295,6 @@ def train_model(
 
 
 def main():
-
     ########## Get arguments ##########
 
     args = get_argparser()
@@ -348,28 +354,57 @@ def main():
     str_set = dataset_set if dataset_set is not None else ""
     print(f"\nBuilding dataset {dataset.name}{str_set} of {len(dataset)}")
 
-    ########## Define Peekaboo ##########
+    ########## Define Models ##########
 
-    model = PeekabooModel(
-        vit_model=config.model["pre_training"],
-        vit_arch=config.model["arch"],
-        vit_patch_size=config.model["patch_size"],
-        enc_type_feats=config.peekaboo["feats"],
-    )
+    if args.distillation:
+        # Knowledge distillation setup with teacher and student models
+        teacher_model = PeekabooModel(
+            vit_model=config.model["pre_training"],
+            vit_arch=config.model["arch"],
+            vit_patch_size=config.model["patch_size"],
+            enc_type_feats=config.peekaboo["feats"],
+        )
+        teacher_model.load_state_dict(torch.load(config['teacher_weights_path']))  # Load pretrained teacher weights
+        teacher_model.eval()  # Set teacher model to evaluation mode
 
-    ########## Training and evaluation ##########
+        student_model = StudentModel()  # Initialize the student model
 
-    print(f"\nStarted training on {dataset.name} [tensorboard dir: {output_dir}]")
-    model = train_model(
-        model=model,
-        config=config,
-        dataset=dataset,
-        dataset_dir=args.dataset_dir,
-        tensorboard_log_dir=output_dir,
-        visualize_freq=args.visualization_freq,
-        save_model_freq=args.save_model_freq,
-    )
-    print(f"\nTraining done, Peekaboo model saved in {output_dir}.")
+        ########## Training with Knowledge Distillation ##########
+
+        print("Starting distillation training...")
+        distillation_training(
+            teacher_model=teacher_model,
+            student_model=student_model,
+            trainloader=torch.utils.data.DataLoader(
+                dataset, batch_size=config.training["batch_size"], shuffle=True, num_workers=2
+            ),
+            config=config.training
+        )
+        torch.save(student_model.state_dict(), os.path.join(output_dir, "student_model_final.pth"))
+        print("Distillation training completed.")
+
+    else:
+        # Standard training for the Peekaboo model
+        model = PeekabooModel(
+            vit_model=config.model["pre_training"],
+            vit_arch=config.model["arch"],
+            vit_patch_size=config.model["patch_size"],
+            enc_type_feats=config.peekaboo["feats"],
+        )
+
+        ########## Standard Training and Evaluation ##########
+
+        print(f"\nStarted training on {dataset.name} [tensorboard dir: {output_dir}]")
+        model = train_model(
+            model=model,
+            config=config,
+            dataset=dataset,
+            dataset_dir=args.dataset_dir,
+            tensorboard_log_dir=output_dir,
+            visualize_freq=args.visualization_freq,
+            save_model_freq=args.save_model_freq,
+        )
+        print(f"\nTraining done, Peekaboo model saved in {output_dir}.")
 
 
 if __name__ == "__main__":

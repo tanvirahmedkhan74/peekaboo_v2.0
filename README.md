@@ -83,6 +83,11 @@ export DATASET_DIR=datasets_local # root directory training and evaluation datas
 python train.py --exp-name peekaboo --dataset-dir $DATASET_DIR
 ```
 
+### DUTS-TR distillation
+```bash
+python train.py --exp-name peekaboo --dataset-dir ./datasets_local --distillation
+```
+
 See logs in `outputs/peekaboo-DUTS-TR-vit_small8` folder and also see tensorboard logs by running: `tensorboard --logdir=outputs`.
 
 ## 2b. Evaluation code
