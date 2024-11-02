@@ -296,7 +296,6 @@ def train_model(
 
 def main():
     ########## Get arguments ##########
-
     args = get_argparser()
 
     ########## Setup ##########
@@ -308,14 +307,11 @@ def main():
     exp_name = "{}-{}{}".format(
         config.training["dataset"], config.model["arch"], config.model["patch_size"]
     )
-
     if args.exp_name is not None:
         exp_name = f"{args.exp_name}-{exp_name}"
 
     # Log dir
     output_dir = os.path.join(args.log_dir, exp_name)
-
-    # Logging
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -324,12 +320,11 @@ def main():
         print(f"Config saved in {output_dir}/config.json.")
         json.dump(args.__dict__, f)
 
-    # Save output of terminal in log file
+    # Log output to file
     sys.stdout = Logger(os.path.join(output_dir, "log_train.txt"))
-    arguments = str(args).split(", ")
     print("=========================\nConfigs:{}\n=========================")
-    for i in range(len(arguments)):
-        print(arguments[i])
+    for arg, value in vars(args).items():
+        print(f"{arg}: {value}")
     print(
         "Hyperparameters from config file: "
         + ", ".join(f"{k}={v}" for k, v in config_.items())
@@ -337,11 +332,9 @@ def main():
     print("=========================")
 
     ########## Reproducibility ##########
-
     set_seed(config.training["seed"])
 
     ########## Build training set ##########
-
     dataset = build_dataset(
         root_dir=args.dataset_dir,
         dataset_name=config.training["dataset"],
@@ -350,12 +343,7 @@ def main():
         for_eval=False,
     )
 
-    dataset_set = config.training["dataset_set"]
-    str_set = dataset_set if dataset_set is not None else ""
-    print(f"\nBuilding dataset {dataset.name}{str_set} of {len(dataset)}")
-
     ########## Define Models ##########
-
     if args.distillation:
         # Knowledge distillation setup with teacher and student models
         teacher_model = PeekabooModel(
@@ -364,13 +352,12 @@ def main():
             vit_patch_size=config.model["patch_size"],
             enc_type_feats=config.peekaboo["feats"],
         )
-        teacher_model.load_state_dict(torch.load(config['teacher_weights_path']))  # Load pretrained teacher weights
+        teacher_model.load_state_dict(torch.load(config.training["teacher_weights_path"]))  # Load pretrained teacher weights
         teacher_model.eval()  # Set teacher model to evaluation mode
 
-        student_model = StudentModel()  # Initialize the student model
+        student_model = StudentModel()  # Initialize student model
 
         ########## Training with Knowledge Distillation ##########
-
         print("Starting distillation training...")
         distillation_training(
             teacher_model=teacher_model,
@@ -378,13 +365,18 @@ def main():
             trainloader=torch.utils.data.DataLoader(
                 dataset, batch_size=config.training["batch_size"], shuffle=True, num_workers=2
             ),
-            config=config.training
+            config={
+                "learning_rate": config.training["lr0"],
+                "epochs": config.training["nb_epochs"],
+                "alpha": config.distillation["alpha"],
+                "temperature": config.distillation["temperature"],
+            }
         )
         torch.save(student_model.state_dict(), os.path.join(output_dir, "student_model_final.pth"))
         print("Distillation training completed.")
 
     else:
-        # Standard training for the Peekaboo model
+        # Standard training for Peekaboo model
         model = PeekabooModel(
             vit_model=config.model["pre_training"],
             vit_arch=config.model["arch"],
@@ -393,7 +385,6 @@ def main():
         )
 
         ########## Standard Training and Evaluation ##########
-
         print(f"\nStarted training on {dataset.name} [tensorboard dir: {output_dir}]")
         model = train_model(
             model=model,
@@ -405,7 +396,6 @@ def main():
             save_model_freq=args.save_model_freq,
         )
         print(f"\nTraining done, Peekaboo model saved in {output_dir}.")
-
 
 if __name__ == "__main__":
     main()

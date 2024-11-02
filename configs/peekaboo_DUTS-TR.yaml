@@ -26,6 +26,12 @@ training:
   proba_photometric_aug: 0.5
   cropping_strategy: random_scale
 
+  # Distillation-specific hyperparameters
+  teacher_weights_path: "data/weights/peekaboo_decoder_weights_niter250.pt"  # Path to teacher weights
+  distillation:
+    alpha: 0.5               # Weight for distillation loss
+    temperature: 3.0         # Temperature for softening teacher output
+
 evaluation:
   type: saliency
   datasets: [DUT-OMRON, ECSSD]
