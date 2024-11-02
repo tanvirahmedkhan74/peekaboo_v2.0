@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 class StudentModel(nn.Module):
     def __init__(self):
         super(StudentModel, self).__init__()
@@ -21,9 +20,8 @@ class StudentModel(nn.Module):
         self.pointwise2 = nn.Conv2d(64, 128, kernel_size=1)
         self.bn3 = nn.BatchNorm2d(128)
 
-        # Final Convolution and Global Pooling
+        # Final Convolution without Global Pooling
         self.conv_final = nn.Conv2d(128, 1, kernel_size=1)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
 
     def forward(self, x):
         # Forward pass through convolutional layers
@@ -31,7 +29,6 @@ class StudentModel(nn.Module):
         x = self.relu(self.bn2(self.pointwise1(self.depthwise1(x))))
         x = self.relu(self.bn3(self.pointwise2(self.depthwise2(x))))
 
-        # Final convolution and global average pooling
+        # Final convolution
         x = self.conv_final(x)
-        x = self.avg_pool(x).squeeze()
         return x

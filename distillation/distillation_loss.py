@@ -9,10 +9,10 @@ class DistillationLoss(nn.Module):
         self.bce_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, student_output, teacher_output, labels):
-        # Knowledge distillation loss (KL Divergence)
+        # Adjusted dimension for single-channel data
         kd_loss = F.kl_div(
-            F.log_softmax(student_output / self.temperature, dim=1),
-            F.softmax(teacher_output / self.temperature, dim=1),
+            F.log_softmax(student_output / self.temperature, dim=0),
+            F.softmax(teacher_output / self.temperature, dim=0),
             reduction="batchmean"
         ) * (self.alpha * self.temperature ** 2)
 
