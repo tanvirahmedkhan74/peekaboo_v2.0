@@ -352,7 +352,8 @@ def main():
             vit_patch_size=config.model["patch_size"],
             enc_type_feats=config.peekaboo["feats"],
         )
-        teacher_model.load_state_dict(torch.load(config.training["teacher_weights_path"]))  # Load pretrained teacher weights
+
+        teacher_model.decoder_load_weights(config.training["teacher_weights_path"])
         teacher_model.eval()  # Set teacher model to evaluation mode
 
         student_model = StudentModel()  # Initialize student model

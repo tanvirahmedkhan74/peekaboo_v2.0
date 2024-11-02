@@ -1,7 +1,7 @@
 import torch
 import torch.optim as optim
 from tqdm import tqdm
-from distillation_loss import DistillationLoss
+from .distillation_loss import DistillationLoss
 
 def distillation_training(teacher_model, student_model, trainloader, config):
     # Set models
