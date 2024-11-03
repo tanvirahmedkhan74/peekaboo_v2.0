@@ -104,6 +104,8 @@ export MODEL="outputs/peekaboo-DUTS-TR-vit_small8/decoder_weights_niter500.pt"
 # run evaluation
 source evaluate_saliency.sh $MODEL $DATASET_DIR single
 source evaluate_saliency.sh $MODEL $DATASET_DIR multi
+
+source .\evaluate_student_saliency.sh .\outputs\peekaboo-DUTS-TR-vit_small8\student_model_final.pth .\datasets_local\ single
 ```
 
 ### Single object discovery eval

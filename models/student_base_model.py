@@ -32,3 +32,15 @@ class StudentModel(nn.Module):
         # Final convolution
         x = self.conv_final(x)
         return x
+
+    @torch.no_grad()
+    def decoder_load_weights(self, weights_path):
+        print(f"Loading model from weights {weights_path}.")
+        # Load state dict
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        state_dict = torch.load(weights_path, map_location=device)
+
+        # Load decoder weights
+        self.conv_final.load_state_dict(state_dict["decoder"])
+        self.conv_final.eval()
+        self.conv_final.to(device)

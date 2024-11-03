@@ -14,6 +14,7 @@
 
 import argparse
 from model import PeekabooModel
+from models.student_base_model import StudentModel
 from misc import load_config
 from datasets.datasets import build_dataset
 from evaluation.saliency import evaluate_saliency
@@ -66,13 +67,17 @@ if __name__ == "__main__":
     # Configuration
     config, _ = load_config(args.config)
 
-    # Load the model
-    model = PeekabooModel(
-        vit_model=config.model["pre_training"],
-        vit_arch=config.model["arch"],
-        vit_patch_size=config.model["patch_size"],
-        enc_type_feats=config.peekaboo["feats"],
-    )
+    # Load the appropriate model
+    if args.student_model:
+        model = StudentModel()  # Load student model
+    else:
+        model = PeekabooModel(
+            vit_model=config.model["pre_training"],
+            vit_arch=config.model["arch"],
+            vit_patch_size=config.model["patch_size"],
+            enc_type_feats=config.peekaboo["feats"],
+        )
+
     # Load weights
     model.decoder_load_weights(args.model_weights)
     model.eval()
