@@ -1,23 +1,10 @@
-# Copyright 2022 - Valeo Comfort and Driving Assistance - Oriane Siméoni @ valeo.ai
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import argparse
+import torch
 from model import PeekabooModel
 from models.student_base_model import StudentModel
 from misc import load_config
 from datasets.datasets import build_dataset
-from evaluation.saliency import evaluate_saliency
+from evaluation.saliency import evaluate_saliency, student_evaluation_saliency
 from evaluation.uod import evaluation_unsupervised_object_discovery
 
 if __name__ == "__main__":
@@ -38,7 +25,7 @@ if __name__ == "__main__":
         "--dataset-set-eval", type=str, default=None, help="Set of the dataset."
     )
     parser.add_argument(
-        "--apply-bilateral", action="store_true", help="use bilateral solver."
+        "--apply-bilateral", action="store_true", help="Use bilateral solver."
     )
     parser.add_argument(
         "--evaluation-mode",
@@ -61,13 +48,19 @@ if __name__ == "__main__":
         type=str,
         default="configs/peekaboo_DUTS-TR.yaml",
     )
+    parser.add_argument(
+        "--student-model", action="store_true", help="Evaluate the student model instead of the teacher model."
+    )
     args = parser.parse_args()
     print(args.__dict__)
 
-    # Configuration
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load configuration
     config, _ = load_config(args.config)
 
-    # Load the appropriate model
+    # Load the appropriate model based on the --student-model flag
     if args.student_model:
         model = StudentModel()  # Load student model
     else:
@@ -78,12 +71,15 @@ if __name__ == "__main__":
             enc_type_feats=config.peekaboo["feats"],
         )
 
+    # Move the model to the device
+    model = model.to(device)
+
     # Load weights
     model.decoder_load_weights(args.model_weights)
     model.eval()
     print(f"Model {args.model_weights} loaded correctly.")
 
-    # Build the validation set
+    # Build the validation dataset
     val_dataset = build_dataset(
         root_dir=args.dataset_dir,
         dataset_name=args.dataset_eval,
@@ -93,23 +89,33 @@ if __name__ == "__main__":
     )
     print(f"\nBuilding dataset {val_dataset.name} (#{len(val_dataset)} images)")
 
-    # Validation
+    # Start evaluation
     print(f"\nStarted evaluation on {val_dataset.name}")
     if args.eval_type == "saliency":
-        evaluate_saliency(
-            val_dataset,
-            model=model,
-            evaluation_mode=args.evaluation_mode,
-            apply_bilateral=args.apply_bilateral,
-        )
+        if args.student_model:
+            # Use student evaluation function for saliency
+            student_evaluation_saliency(
+                dataset=val_dataset,
+                student_model=model,
+                evaluation_mode=args.evaluation_mode,
+                apply_bilateral=args.apply_bilateral,
+            )
+        else:
+            # Use teacher evaluation function for saliency
+            evaluate_saliency(
+                dataset=val_dataset,
+                model=model,
+                evaluation_mode=args.evaluation_mode,
+                apply_bilateral=args.apply_bilateral,
+            )
     elif args.eval_type == "uod":
         if args.apply_bilateral:
-            raise ValueError("Not implemented.")
-
+            raise ValueError("Bilateral solver is not implemented for unsupervised object discovery.")
+        # Use UOD evaluation for either model (assuming same function applies)
         evaluation_unsupervised_object_discovery(
-            val_dataset,
+            dataset=val_dataset,
             model=model,
             evaluation_mode=args.evaluation_mode,
         )
     else:
-        raise ValueError("Other evaluation method to come.")
+        raise ValueError("Other evaluation method not implemented.")

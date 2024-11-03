@@ -270,3 +270,161 @@ def evaluate_saliency(
     # Go back to original transformation
     if im_fullsize:
         dataset.training_mode()
+
+@torch.no_grad()
+def eval_batch_student(batch_gt_masks, batch_pred_masks, metrics_res={}, reset=False):
+    """
+    Evaluates a batch of predictions for the student model with debugging.
+    """
+    f_values = {}
+    for i in range(255):  # For each threshold in the f-measure
+        f_values[i] = AverageMeter()
+
+    # Initialize metrics_res if empty
+    if not metrics_res:
+        metrics_res = {
+            "f_scores": AverageMeter(),
+            "f_maxs": AverageMeter(),
+            "f_maxs_fixed": AverageMeter(),
+            "f_means": AverageMeter(),
+            "maes": AverageMeter(),
+            "ious": AverageMeter(),
+            "pixel_accs": AverageMeter(),
+            "s_measures": AverageMeter(),
+        }
+
+    # Reset metrics if specified
+    if reset:
+        for meter in metrics_res.values():
+            meter.reset()
+
+    # Iterate over batch of predictions and ground truth masks
+    for idx, (pred_mask, gt_mask) in enumerate(zip(batch_pred_masks, batch_gt_masks)):
+        pred_mask = pred_mask.squeeze()
+        gt_mask = gt_mask.squeeze()
+
+        # Debugging: Print shapes and ensure they match
+        print(f"\nBatch index {idx}")
+        print(f"Prediction mask shape: {pred_mask.shape}, GT mask shape: {gt_mask.shape}")
+        assert pred_mask.shape == gt_mask.shape, f"Shape mismatch: {pred_mask.shape} != {gt_mask.shape}"
+
+        # Binarize the prediction mask at 0.5 threshold
+        binary_pred = (pred_mask > 0.5).float()
+        print(f"Binary Prediction unique values: {binary_pred.unique()}")
+        print(f"GT Mask unique values: {gt_mask.unique()}")
+
+        # Calculate metrics
+        iou = compute_iou(binary_pred, gt_mask)
+        f_measures = FMeasure()(pred_mask, gt_mask)
+        mae = compute_mae(binary_pred, gt_mask)
+        pixel_acc = compute_pixel_accuracy(binary_pred, gt_mask)
+
+        # Debugging: Print metric values
+        print(f"IoU: {iou}")
+        print(f"F-measure: {f_measures['f_measure']}, F-max: {f_measures['f_max']}, F-mean: {f_measures['f_mean']}")
+        print(f"MAE: {mae}, Pixel Accuracy: {pixel_acc}")
+
+        # Update metrics
+        metrics_res["ious"].update(val=iou.numpy(), n=1)
+        metrics_res["f_scores"].update(val=f_measures["f_measure"].numpy(), n=1)
+        metrics_res["f_maxs"].update(val=f_measures["f_max"].numpy(), n=1)
+        metrics_res["f_means"].update(val=f_measures["f_mean"].numpy(), n=1)
+        metrics_res["s_measures"].update(SMeasure()(pred_mask, gt_mask), n=1)
+        metrics_res["maes"].update(val=mae.numpy(), n=1)
+        metrics_res["pixel_accs"].update(val=pixel_acc.numpy(), n=1)
+
+        # Track F-measure at different thresholds
+        all_f = f_measures["all_f"].numpy()
+        for k, v in f_values.items():
+            v.update(val=all_f[k], n=1)
+
+        # Update f_maxs_fixed with max of f_values at different thresholds
+        metrics_res["f_maxs_fixed"].update(val=np.max([v.avg for v in f_values.values()]), n=1)
+
+    # Final average metrics
+    results = {k: v.avg for k, v in metrics_res.items()}
+    print("\nFinal averaged results:")
+    print(results)
+    return results, metrics_res
+
+
+@torch.no_grad()
+def student_evaluation_saliency(
+    dataset,
+    student_model,
+    batch_size=1,
+    apply_bilateral=False,
+    im_fullsize=True,
+    evaluation_mode="multi",
+):
+    """
+    Evaluates the StudentModel for saliency detection on a specified dataset.
+
+    Parameters:
+    - dataset: Dataset to evaluate on.
+    - student_model: The student model to be evaluated.
+    - batch_size: Number of images per batch.
+    - apply_bilateral: Whether to apply a bilateral solver for smoothing.
+    - im_fullsize: Whether to evaluate at full image size.
+    - evaluation_mode: Mode of evaluation ("single" or "multi").
+    """
+    student_model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    student_model.to(device)
+
+    if im_fullsize:
+        dataset.fullimg_mode()
+        batch_size = 1
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, num_workers=2
+    )
+    sigmoid = nn.Sigmoid()
+    metrics_res = {}
+
+    valbar = tqdm(enumerate(dataloader), total=len(dataloader), desc="Evaluating")
+    for i, data in valbar:
+        inputs, _, _, _, _, gt_labels, _ = data
+        inputs, gt_labels = inputs.to(device), gt_labels.to(device).float()
+
+        # Generate predictions
+        preds = student_model(inputs)
+
+        # Resize predictions to match ground truth dimensions
+        h, w = gt_labels.shape[-2:]
+        preds_up = F.interpolate(preds, size=(h, w), mode="bilinear", align_corners=False)
+        soft_preds = sigmoid(preds_up).squeeze(0)
+        preds_up = (soft_preds > 0.5).float()
+
+        reset = i == 0
+        if evaluation_mode == "single":
+            labeled, num_objects = ndimage.label(preds_up.cpu().numpy())
+            if num_objects == 0:
+                preds_up_one_cc = preds_up
+            else:
+                sizes = [np.sum(labeled == j) for j in range(1, num_objects + 1)]
+                largest_cc = (labeled == (np.argmax(sizes) + 1))
+                preds_up_one_cc = torch.tensor(largest_cc, dtype=torch.float32, device=device)
+
+            _, metrics_res = eval_batch_student(
+                gt_labels, preds_up_one_cc.unsqueeze(0), metrics_res=metrics_res, reset=reset
+            )
+
+        elif evaluation_mode == "multi":
+            _, metrics_res = eval_batch_student(
+                gt_labels, soft_preds.unsqueeze(0), metrics_res=metrics_res, reset=reset
+            )
+
+        # Bilateral solver option
+        if apply_bilateral:
+            preds_bs, _ = batch_apply_bilateral_solver(data, preds_up.detach(), get_all_cc=evaluation_mode == "multi")
+            _, metrics_res = eval_batch_student(gt_labels, preds_bs[None, :, :].float(), metrics_res=metrics_res, reset=reset)
+
+        # Update progress bar
+        valbar.set_postfix(
+            f_max=metrics_res.get("f_maxs", AverageMeter()).avg,
+            IoU=metrics_res.get("ious", AverageMeter()).avg,
+            pixel_acc=metrics_res.get("pixel_accs", AverageMeter()).avg,
+        )
+
+    return metrics_res
