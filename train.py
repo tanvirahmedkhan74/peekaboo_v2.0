@@ -297,9 +297,11 @@ def train_model(
 
 
 def test_and_save_predictions(model, dataset, output_dir, model_type="student", num_images=5):
-    # Set up directories for saving predictions
+    # Set up directories for saving predictions and inputs
     output_dir = os.path.join(output_dir, f"{model_type}_predictions")
+    inputs_dir = os.path.join(output_dir, "inputs")
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(inputs_dir, exist_ok=True)
 
     # Load a small portion of the dataset
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
@@ -318,15 +320,20 @@ def test_and_save_predictions(model, dataset, output_dir, model_type="student", 
             inputs, _, _, _, _, _, _ = data
             inputs = inputs.to(device)
 
+            # Save the input image
+            input_image = inputs.squeeze().cpu()
+            input_image = transforms.ToPILImage()(input_image)
+            input_image.save(os.path.join(inputs_dir, f"input_image_{idx + 1}.png"))
+
             # Generate prediction
             preds = model(inputs)
             preds = sigmoid(preds).squeeze().cpu()
 
-            # Convert to a PIL image and save as PNG
+            # Convert prediction to a PIL image and save as PNG
             pred_image = transforms.ToPILImage()(preds)
             pred_image.save(os.path.join(output_dir, f"{model_type}_prediction_{idx + 1}.png"))
 
-    print(f"{model_type.capitalize()} predictions saved to {output_dir}")
+    print(f"{model_type.capitalize()} predictions and input images saved to {output_dir} and {inputs_dir}")
 
 def main():
     ########## Get arguments ##########
