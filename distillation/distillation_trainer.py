@@ -193,6 +193,10 @@ def save_visualization(inputs, student_output, teacher_output, output_dir, epoch
     student_output = student_output.squeeze().cpu()
     teacher_output = teacher_output.squeeze().cpu()
 
+    # Resize student and teacher outputs to match the dimensions of inputs
+    student_output = F.interpolate(student_output.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
+    teacher_output = F.interpolate(teacher_output.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
+
     # Normalize and convert to PIL images
     to_pil = transforms.ToPILImage()
     inputs = (inputs - inputs.min()) / (inputs.max() - inputs.min() + 1e-5)

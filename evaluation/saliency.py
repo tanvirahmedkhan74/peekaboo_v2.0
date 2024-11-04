@@ -377,14 +377,14 @@ def student_evaluation_saliency(
         # Resize predictions to match ground truth dimensions
         h, w = gt_labels.shape[-2:]
         preds_up = F.interpolate(preds, size=(h, w), mode="bilinear", align_corners=False)
-        soft_preds = sigmoid(preds_up).squeeze(0)
-        preds_up = (soft_preds > 0.5).float()
+        soft_preds = sigmoid(preds_up).squeeze(0)  # Soft prediction for F-measure
+        binary_preds = (soft_preds > 0.5).float()  # Binary prediction for IoU and Pixel Accuracy
 
         reset = i == 0
         if evaluation_mode == "single":
-            labeled, num_objects = ndimage.label(preds_up.cpu().numpy())
+            labeled, num_objects = ndimage.label(binary_preds.cpu().numpy())
             if num_objects == 0:
-                preds_up_one_cc = preds_up
+                preds_up_one_cc = binary_preds
             else:
                 sizes = [np.sum(labeled == j) for j in range(1, num_objects + 1)]
                 largest_cc = (labeled == (np.argmax(sizes) + 1))
@@ -401,7 +401,7 @@ def student_evaluation_saliency(
 
         # Bilateral solver option
         if apply_bilateral:
-            preds_bs, _ = batch_apply_bilateral_solver(data, preds_up.detach(), get_all_cc=evaluation_mode == "multi")
+            preds_bs, _ = batch_apply_bilateral_solver(data, binary_preds.detach(), get_all_cc=(evaluation_mode == "multi"))
             _, metrics_res = eval_batch_student(gt_labels, preds_bs[None, :, :].float(), metrics_res=metrics_res, reset=reset)
 
         # Update progress bar

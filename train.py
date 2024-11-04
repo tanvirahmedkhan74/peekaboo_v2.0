@@ -296,11 +296,6 @@ def train_model(
     return model
 
 
-import os
-import torch
-import torch.nn as nn
-import torchvision.transforms as transforms
-
 def test_and_save_predictions(model, dataset, output_dir, model_type="student", num_images=5):
     # Set up directories for saving predictions and inputs
     output_dir = os.path.join(output_dir, f"{model_type}_predictions")
