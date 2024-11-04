@@ -12,6 +12,8 @@ import argparse
 import torch
 import torch.nn as nn
 import torchvision
+import torchvision.transforms as transforms
+from PIL import Image
 from tqdm import tqdm
 
 from model import PeekabooModel
@@ -294,6 +296,38 @@ def train_model(
     return model
 
 
+def test_and_save_predictions(model, dataset, output_dir, model_type="student", num_images=5):
+    # Set up directories for saving predictions
+    output_dir = os.path.join(output_dir, f"{model_type}_predictions")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Load a small portion of the dataset
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
+    sigmoid = nn.Sigmoid()
+
+    # Run predictions on a subset of the dataset
+    model.eval()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    with torch.no_grad():
+        for idx, data in enumerate(dataloader):
+            if idx >= num_images:
+                break
+
+            inputs, _, _, _, _, _, _ = data
+            inputs = inputs.to(device)
+
+            # Generate prediction
+            preds = model(inputs)
+            preds = sigmoid(preds).squeeze().cpu()
+
+            # Convert to a PIL image and save as PNG
+            pred_image = transforms.ToPILImage()(preds)
+            pred_image.save(os.path.join(output_dir, f"{model_type}_prediction_{idx + 1}.png"))
+
+    print(f"{model_type.capitalize()} predictions saved to {output_dir}")
+
 def main():
     ########## Get arguments ##########
     args = get_argparser()
@@ -352,7 +386,6 @@ def main():
             vit_patch_size=config.model["patch_size"],
             enc_type_feats=config.peekaboo["feats"],
         )
-
         teacher_model.decoder_load_weights(config.training["teacher_weights_path"])
         teacher_model.eval()  # Set teacher model to evaluation mode
 
@@ -373,8 +406,16 @@ def main():
                 "temperature": config.distillation["temperature"],
             }
         )
-        torch.save(student_model.state_dict(), os.path.join(output_dir, "student_model_final.pth"))
+        student_model_path = os.path.join(output_dir, "student_model_final.pth")
+        torch.save(student_model.state_dict(), student_model_path)
         print("Distillation training completed.")
+
+        # Run testing and save predictions for both teacher and student models
+        print("Saving sample predictions for teacher model...")
+        test_and_save_predictions(teacher_model, dataset, output_dir, model_type="teacher")
+
+        print("Saving sample predictions for student model...")
+        test_and_save_predictions(student_model, dataset, output_dir, model_type="student")
 
     else:
         # Standard training for Peekaboo model
