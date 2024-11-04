@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class StudentModel(nn.Module):
     def __init__(self):
         super(StudentModel, self).__init__()
@@ -34,10 +35,14 @@ class StudentModel(nn.Module):
     def decoder_load_weights(self, weights_path):
         print(f"Loading model from weights {weights_path}.")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        state_dict = torch.load(weights_path, map_location=device)
+        state_dict = torch.load(weights_path, map_location=device, weights_only=True)
+
+        # Check keys and load appropriate weights
+        print("Available keys in loaded state_dict:", state_dict.keys())
         if "decoder" in state_dict:
             self.conv_final.load_state_dict(state_dict["decoder"])
         else:
-            raise KeyError("Decoder weights not found in loaded state_dict.")
+            self.conv_final.load_state_dict(state_dict, strict=False)
+
         self.conv_final.eval()
         self.conv_final.to(device)
