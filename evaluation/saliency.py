@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.utils import save_image
 
 from tqdm import tqdm
 from scipy import ndimage
@@ -334,12 +336,13 @@ def eval_batch_student(batch_gt_masks, batch_pred_masks, metrics_res={}, reset=F
 
 @torch.no_grad()
 def student_evaluation_saliency(
-    dataset,
-    student_model,
-    batch_size=1,
-    apply_bilateral=False,
-    im_fullsize=True,
-    evaluation_mode="multi",
+        dataset,
+        student_model,
+        batch_size=1,
+        apply_bilateral=False,
+        im_fullsize=True,
+        evaluation_mode="multi",
+        output_dir="outputs/evaluation"
 ):
     """
     Evaluates the StudentModel for saliency detection on a specified dataset.
@@ -351,10 +354,16 @@ def student_evaluation_saliency(
     - apply_bilateral: Whether to apply a bilateral solver for smoothing.
     - im_fullsize: Whether to evaluate at full image size.
     - evaluation_mode: Mode of evaluation ("single" or "multi").
+    - output_dir: Directory to save the output images.
     """
     student_model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     student_model.to(device)
+
+    # Create output subfolders
+    os.makedirs(os.path.join(output_dir, "predicted"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "ground_truth"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "original"), exist_ok=True)
 
     if im_fullsize:
         dataset.fullimg_mode()
@@ -368,9 +377,10 @@ def student_evaluation_saliency(
 
     valbar = tqdm(enumerate(dataloader), total=len(dataloader), desc="Evaluating")
     for i, data in valbar:
-        inputs, _, _, _, _, gt_labels, _ = data
-        inputs, gt_labels = inputs.to(device), gt_labels.to(device).float()
+        inputs = data[0]  # Adjusted to directly access inputs
+        gt_labels = data[5].to(device).float()
 
+        inputs = inputs.to(device)  # Move inputs to the appropriate device
         # Generate predictions
         preds = student_model(inputs)
 
@@ -378,7 +388,16 @@ def student_evaluation_saliency(
         h, w = gt_labels.shape[-2:]
         preds_up = F.interpolate(preds, size=(h, w), mode="bilinear", align_corners=False)
         soft_preds = sigmoid(preds_up).squeeze(0)  # Soft prediction for F-measure
+
         binary_preds = (soft_preds > 0.5).float()  # Binary prediction for IoU and Pixel Accuracy
+
+        # Save every 10th image
+        if i % 10 == 0:
+            save_image(inputs.cpu().squeeze(0), f"{output_dir}/original/image_{i}.png")
+            save_image(gt_labels.cpu().squeeze(0), f"{output_dir}/ground_truth/image_{i}.png")
+            binary_preds_uint8 = (binary_preds.squeeze(0).cpu() > 0.5).float()  # Scale binary predictions to [0, 1]
+            # Add channel dimension and save as expected by save_image
+            save_image(binary_preds_uint8.unsqueeze(0), f"{output_dir}/predicted/image_{i}.png")
 
         reset = i == 0
         if evaluation_mode == "single":
@@ -401,8 +420,10 @@ def student_evaluation_saliency(
 
         # Bilateral solver option
         if apply_bilateral:
-            preds_bs, _ = batch_apply_bilateral_solver(data, binary_preds.detach(), get_all_cc=(evaluation_mode == "multi"))
-            _, metrics_res = eval_batch_student(gt_labels, preds_bs[None, :, :].float(), metrics_res=metrics_res, reset=reset)
+            preds_bs, _ = batch_apply_bilateral_solver(data, binary_preds.detach(),
+                                                       get_all_cc=(evaluation_mode == "multi"))
+            _, metrics_res = eval_batch_student(gt_labels, preds_bs[None, :, :].float(), metrics_res=metrics_res,
+                                                reset=reset)
 
         # Update progress bar
         valbar.set_postfix(

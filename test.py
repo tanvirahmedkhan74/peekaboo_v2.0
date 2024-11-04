@@ -11,37 +11,30 @@ from misc import load_config
 def save_predictions(input_image, student_preds, teacher_preds, output_dir, idx):
     """Save the input image, student and teacher predictions."""
 
-    # Ensure prediction values are in the 0-1 range
-    student_preds = (student_preds - student_preds.min()) / (student_preds.max() - student_preds.min() + 1e-5)
-    teacher_preds = (teacher_preds - teacher_preds.min()) / (teacher_preds.max() - teacher_preds.min() + 1e-5)
-
     # Convert tensors to PIL images
     input_pil = transforms.ToPILImage()(input_image)
     student_pred_pil = transforms.ToPILImage()(student_preds)
     teacher_pred_pil = transforms.ToPILImage()(teacher_preds)
 
     # Save images
-    input_pil.save(os.path.join(output_dir, f"input_image_{idx + 1}.png"))
-    student_pred_pil.save(os.path.join(output_dir, f"student_prediction_{idx + 1}.png"))
-    teacher_pred_pil.save(os.path.join(output_dir, f"teacher_prediction_{idx + 1}.png"))
+    input_pil.save(os.path.join(output_dir, "inputs", f"input_image_{idx + 1}.png"))
+    student_pred_pil.save(os.path.join(output_dir, "student_predictions", f"student_prediction_{idx + 1}.png"))
+    teacher_pred_pil.save(os.path.join(output_dir, "teacher_predictions", f"teacher_prediction_{idx + 1}.png"))
 
     print(f"Saved input, student, and teacher predictions for image {idx + 1}")
 
 
 def test_and_save_predictions(teacher_model, student_model, dataset, output_dir, num_images=5):
     # Set up directories for saving predictions and inputs
-    teacher_output_dir = os.path.join(output_dir, "teacher_predictions")
-    student_output_dir = os.path.join(output_dir, "student_predictions")
-    inputs_dir = os.path.join(output_dir, "inputs")
-    os.makedirs(teacher_output_dir, exist_ok=True)
-    os.makedirs(student_output_dir, exist_ok=True)
-    os.makedirs(inputs_dir, exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "teacher_predictions"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "student_predictions"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "inputs"), exist_ok=True)
 
-    # Load a small portion of the dataset
+    # Load a portion of the dataset for testing
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
     sigmoid = nn.Sigmoid()
 
-    # Run predictions on a subset of the dataset
+    # Set models to evaluation mode and move to the appropriate device
     teacher_model.eval()
     student_model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -56,35 +49,29 @@ def test_and_save_predictions(teacher_model, student_model, dataset, output_dir,
             inputs, _, _, _, _, _, _ = data
             inputs = inputs.to(device)
 
-            # Save the input image
+            # Pre-process input image for saving (normalize to [0, 1] for visualization)
             input_image = inputs.squeeze().cpu()
             input_image = (input_image - input_image.min()) / (input_image.max() - input_image.min() + 1e-5)
-            input_image_pil = transforms.ToPILImage()(input_image)
-            input_image_pil.save(os.path.join(inputs_dir, f"input_image_{idx + 1}.png"))
 
             # Teacher's prediction
             teacher_preds = teacher_model(inputs)
             teacher_preds = sigmoid(teacher_preds).squeeze().cpu()
             teacher_preds = (teacher_preds - teacher_preds.min()) / (teacher_preds.max() - teacher_preds.min() + 1e-5)
-            teacher_pred_image = transforms.ToPILImage()(teacher_preds)
-            teacher_pred_image.save(os.path.join(teacher_output_dir, f"teacher_prediction_{idx + 1}.png"))
 
-            # Student's prediction
+            # Student's prediction with binary thresholding
             student_preds = student_model(inputs)
             student_preds = sigmoid(student_preds).squeeze().cpu()
             student_preds = (student_preds - student_preds.min()) / (student_preds.max() - student_preds.min() + 1e-5)
 
-            # Thresholding to create a binary mask
+            # Apply a binary threshold for the student predictions (for black-white mask)
             threshold = 0.5
             binary_mask = (student_preds < threshold).float()  # 0 for highlighted, 1 for background
+            binary_mask = 1 - binary_mask  # Invert colors for black (highlighted) and white (background)
 
-            # Invert colors: highlighted pixels become black (0), background becomes white (1)
-            binary_mask = 1 - binary_mask  # Invert to make highlighted black and background white
+            # Save all images for this sample
+            save_predictions(input_image, binary_mask, teacher_preds, output_dir, idx)
 
-            student_pred_image = transforms.ToPILImage()(binary_mask)
-            student_pred_image.save(os.path.join(student_output_dir, f"student_prediction_{idx + 1}.png"))
-
-    print(f"Predictions saved in {teacher_output_dir}, {student_output_dir}, and {inputs_dir}")
+    print(f"Predictions saved in '{output_dir}'")
 
 
 def main():
@@ -96,7 +83,7 @@ def main():
     output_dir = "./outputs/test_predictions"
     os.makedirs(output_dir, exist_ok=True)
 
-    # Initialize the student and teacher models
+    # Initialize teacher and student models with respective weights
     teacher_model = PeekabooModel(
         vit_model=config.model["pre_training"],
         vit_arch=config.model["arch"],
@@ -108,7 +95,7 @@ def main():
     student_model = StudentModel()
     student_model.decoder_load_weights('./outputs/peekaboo-DUTS-TR-vit_small8/student_model_final.pth')
 
-    # Build the test dataset
+    # Build the dataset for evaluation
     dataset = build_dataset(
         root_dir='./datasets_local/',
         dataset_name=config.training["dataset"],
