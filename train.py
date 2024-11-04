@@ -296,6 +296,11 @@ def train_model(
     return model
 
 
+import os
+import torch
+import torch.nn as nn
+import torchvision.transforms as transforms
+
 def test_and_save_predictions(model, dataset, output_dir, model_type="student", num_images=5):
     # Set up directories for saving predictions and inputs
     output_dir = os.path.join(output_dir, f"{model_type}_predictions")
@@ -306,8 +311,9 @@ def test_and_save_predictions(model, dataset, output_dir, model_type="student", 
     # Load a small portion of the dataset
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
     sigmoid = nn.Sigmoid()
+    to_pil = transforms.ToPILImage()
 
-    # Run predictions on a subset of the dataset
+    # Prepare the model for evaluation
     model.eval()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -317,23 +323,27 @@ def test_and_save_predictions(model, dataset, output_dir, model_type="student", 
             if idx >= num_images:
                 break
 
+            # Unpack data (assuming only inputs are used here)
             inputs, _, _, _, _, _, _ = data
             inputs = inputs.to(device)
 
-            # Save the input image
+            # Normalize and save the input image
             input_image = inputs.squeeze().cpu()
-            input_image = transforms.ToPILImage()(input_image)
+            input_image = (input_image - input_image.min()) / (input_image.max() - input_image.min() + 1e-5)
+            input_image = to_pil(input_image)
             input_image.save(os.path.join(inputs_dir, f"input_image_{idx + 1}.png"))
 
-            # Generate prediction
+            # Generate and normalize prediction
             preds = model(inputs)
             preds = sigmoid(preds).squeeze().cpu()
+            preds = (preds - preds.min()) / (preds.max() - preds.min() + 1e-5)
 
             # Convert prediction to a PIL image and save as PNG
-            pred_image = transforms.ToPILImage()(preds)
+            pred_image = to_pil(preds)
             pred_image.save(os.path.join(output_dir, f"{model_type}_prediction_{idx + 1}.png"))
 
     print(f"{model_type.capitalize()} predictions and input images saved to {output_dir} and {inputs_dir}")
+
 
 def main():
     ########## Get arguments ##########

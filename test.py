@@ -75,8 +75,8 @@ def test_and_save_predictions(teacher_model, student_model, dataset, output_dir,
             student_preds = (student_preds - student_preds.min()) / (student_preds.max() - student_preds.min() + 1e-5)
 
             # Thresholding to create a binary mask
-            threshold = 0.5  # You can adjust this threshold as needed
-            binary_mask = (student_preds > threshold).float()  # 1 for highlighted, 0 for background
+            threshold = 0.5
+            binary_mask = (student_preds < threshold).float()  # 0 for highlighted, 1 for background
 
             # Invert colors: highlighted pixels become black (0), background becomes white (1)
             binary_mask = 1 - binary_mask  # Invert to make highlighted black and background white
