@@ -80,7 +80,7 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
     criterion = UndeviatingDistillationLoss(alpha=config["alpha"], temperature=config["temperature"])
     optimizer = optim.Adam(student_model.parameters(), lr=config['learning_rate'])
 
-    # Create output directory for predictions
+    # output directory for predictions
     output_dir = './outputs/KD_epoch_out'
     os.makedirs(output_dir, exist_ok=True)
 
@@ -118,6 +118,7 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
 
     print("Training completed.")
 
+
 def hybrid_distillation_training(teacher_model, student_model, trainloader, config):
     # Set models
     teacher_model.eval()  # Teacher in eval mode
@@ -128,15 +129,15 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
     teacher_model.to(device)
     student_model.to(device)
 
-    # Define hybrid loss and optimizer
+    # hybrid loss and optimizer
     criterion = HybridDistillationLoss(
         alpha=config["alpha"],
         temperature=config["temperature"],
-        beta=config.get("beta", 0.5)  # Set beta for supervised loss weight
+        beta=config.get("beta", 0.5)  # beta for supervised loss weight
     )
     optimizer = optim.Adam(student_model.parameters(), lr=config['learning_rate'])
 
-    # Create output directory for predictions
+    # output directory for predictions
     output_dir = './outputs/KD_epoch_out'
     os.makedirs(output_dir, exist_ok=True)
 
@@ -144,26 +145,33 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
     for epoch in range(config['epochs']):
         running_loss = 0.0
         for batch in tqdm(trainloader):
-            # Extract inputs and ground truth labels as done in saliency.py
+            # Extract inputs and ground truth labels
             inputs, _, _, _, _, gt_labels, _ = batch  # gt_labels is positioned as in saliency.py
             inputs = inputs.to(device)
             gt_labels = gt_labels.to(device).float()  # Ensure ground truth is in the correct format
 
-            # teacher and student outputs
+            # Teacher outputs
             with torch.no_grad():
                 teacher_output = teacher_model(inputs)
-            student_output = student_model(inputs)
+                # Apply sigmoid to get binary predictions
+                teacher_output = torch.sigmoid(teacher_output) > 0.5  # Binarize teacher output
 
+            # Student outputs
+            student_output = student_model(inputs)
             # Resize student output to match teacher output dimensions if needed
             if student_output.shape != teacher_output.shape:
-                student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear', align_corners=False)
+                student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear',
+                                               align_corners=False)
 
-            # Ensuring gt_labels have one channel and resize to match output dimensions
-            gt_labels = gt_labels[:, :1, :, :]  # only one channel if gt_labels have multiple channels
+            # Binarize student output
+            student_output_binary = torch.sigmoid(student_output) > 0.5  # Binarize student output
+
+            # gt_labels have one channel and resize to match output dimensions
+            gt_labels = gt_labels[:, :1, :, :]  # Only one channel if gt_labels have multiple channels
             gt_labels = F.interpolate(gt_labels, size=student_output.shape[2:], mode='bilinear', align_corners=False)
 
             # Compute hybrid loss with distillation and supervised components
-            loss = criterion(student_output, teacher_output, ground_truth=gt_labels)
+            loss = criterion(student_output, teacher_output.float(), ground_truth=gt_labels.float())
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -173,7 +181,7 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
         print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {running_loss / len(trainloader):.4f}")
 
         # Save images for visualization
-        save_visualization(inputs, student_output, teacher_output, output_dir, epoch)
+        save_visualization(inputs, student_output_binary.float(), teacher_output.float(), output_dir, epoch)
 
     print("Training completed.")
 
