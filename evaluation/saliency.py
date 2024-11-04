@@ -274,11 +274,9 @@ def evaluate_saliency(
 @torch.no_grad()
 def eval_batch_student(batch_gt_masks, batch_pred_masks, metrics_res={}, reset=False):
     """
-    Evaluates a batch of predictions for the student model with debugging.
+    Evaluates a batch of predictions for the student model without debugging prints.
     """
-    f_values = {}
-    for i in range(255):  # For each threshold in the f-measure
-        f_values[i] = AverageMeter()
+    f_values = {i: AverageMeter() for i in range(255)}  # F-measure thresholds
 
     # Initialize metrics_res if empty
     if not metrics_res:
@@ -299,30 +297,18 @@ def eval_batch_student(batch_gt_masks, batch_pred_masks, metrics_res={}, reset=F
             meter.reset()
 
     # Iterate over batch of predictions and ground truth masks
-    for idx, (pred_mask, gt_mask) in enumerate(zip(batch_pred_masks, batch_gt_masks)):
+    for pred_mask, gt_mask in zip(batch_pred_masks, batch_gt_masks):
         pred_mask = pred_mask.squeeze()
         gt_mask = gt_mask.squeeze()
 
-        # Debugging: Print shapes and ensure they match
-        print(f"\nBatch index {idx}")
-        print(f"Prediction mask shape: {pred_mask.shape}, GT mask shape: {gt_mask.shape}")
-        assert pred_mask.shape == gt_mask.shape, f"Shape mismatch: {pred_mask.shape} != {gt_mask.shape}"
-
         # Binarize the prediction mask at 0.5 threshold
         binary_pred = (pred_mask > 0.5).float()
-        print(f"Binary Prediction unique values: {binary_pred.unique()}")
-        print(f"GT Mask unique values: {gt_mask.unique()}")
 
         # Calculate metrics
         iou = compute_iou(binary_pred, gt_mask)
         f_measures = FMeasure()(pred_mask, gt_mask)
         mae = compute_mae(binary_pred, gt_mask)
         pixel_acc = compute_pixel_accuracy(binary_pred, gt_mask)
-
-        # Debugging: Print metric values
-        print(f"IoU: {iou}")
-        print(f"F-measure: {f_measures['f_measure']}, F-max: {f_measures['f_max']}, F-mean: {f_measures['f_mean']}")
-        print(f"MAE: {mae}, Pixel Accuracy: {pixel_acc}")
 
         # Update metrics
         metrics_res["ious"].update(val=iou.numpy(), n=1)
@@ -343,8 +329,6 @@ def eval_batch_student(batch_gt_masks, batch_pred_masks, metrics_res={}, reset=F
 
     # Final average metrics
     results = {k: v.avg for k, v in metrics_res.items()}
-    print("\nFinal averaged results:")
-    print(results)
     return results, metrics_res
 
 
