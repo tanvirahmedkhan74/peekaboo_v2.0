@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn as nn
 import torchvision.transforms as transforms
 from model import PeekabooModel
 from models.student_base_model import StudentModel
@@ -57,19 +58,30 @@ def test_and_save_predictions(teacher_model, student_model, dataset, output_dir,
 
             # Save the input image
             input_image = inputs.squeeze().cpu()
-            input_image = transforms.ToPILImage()(input_image)
-            input_image.save(os.path.join(inputs_dir, f"input_image_{idx + 1}.png"))
+            input_image = (input_image - input_image.min()) / (input_image.max() - input_image.min() + 1e-5)
+            input_image_pil = transforms.ToPILImage()(input_image)
+            input_image_pil.save(os.path.join(inputs_dir, f"input_image_{idx + 1}.png"))
 
             # Teacher's prediction
             teacher_preds = teacher_model(inputs)
             teacher_preds = sigmoid(teacher_preds).squeeze().cpu()
+            teacher_preds = (teacher_preds - teacher_preds.min()) / (teacher_preds.max() - teacher_preds.min() + 1e-5)
             teacher_pred_image = transforms.ToPILImage()(teacher_preds)
             teacher_pred_image.save(os.path.join(teacher_output_dir, f"teacher_prediction_{idx + 1}.png"))
 
             # Student's prediction
             student_preds = student_model(inputs)
             student_preds = sigmoid(student_preds).squeeze().cpu()
-            student_pred_image = transforms.ToPILImage()(student_preds)
+            student_preds = (student_preds - student_preds.min()) / (student_preds.max() - student_preds.min() + 1e-5)
+
+            # Thresholding to create a binary mask
+            threshold = 0.5  # You can adjust this threshold as needed
+            binary_mask = (student_preds > threshold).float()  # 1 for highlighted, 0 for background
+
+            # Invert colors: highlighted pixels become black (0), background becomes white (1)
+            binary_mask = 1 - binary_mask  # Invert to make highlighted black and background white
+
+            student_pred_image = transforms.ToPILImage()(binary_mask)
             student_pred_image.save(os.path.join(student_output_dir, f"student_prediction_{idx + 1}.png"))
 
     print(f"Predictions saved in {teacher_output_dir}, {student_output_dir}, and {inputs_dir}")
@@ -106,7 +118,7 @@ def main():
     )
 
     # Run testing and save predictions
-    test_and_save_predictions(student_model, teacher_model, dataset, output_dir, num_images=10)
+    test_and_save_predictions(teacher_model, student_model, dataset, output_dir, num_images=10)
 
 
 if __name__ == "__main__":
