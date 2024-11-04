@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from .distillation_loss import DistillationLoss
 from .undeviating_distillation_loss import UndeviatingDistillationLoss
+from .hybrid_distillation_loss import HybridDistillationLoss
 from torchvision import transforms
 
 
@@ -117,8 +118,64 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
 
     print("Training completed.")
 
-import os
-from torchvision import transforms
+def hybrid_distillation_training(teacher_model, student_model, trainloader, config):
+    # Set models
+    teacher_model.eval()  # Teacher in eval mode
+    student_model.train()  # Student in training mode
+
+    # Move to device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    teacher_model.to(device)
+    student_model.to(device)
+
+    # Define hybrid loss and optimizer
+    criterion = HybridDistillationLoss(
+        alpha=config["alpha"],
+        temperature=config["temperature"],
+        beta=config.get("beta", 0.5)  # Set beta for supervised loss weight
+    )
+    optimizer = optim.Adam(student_model.parameters(), lr=config['learning_rate'])
+
+    # Create output directory for predictions
+    output_dir = './outputs/KD_epoch_out'
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Training loop
+    for epoch in range(config['epochs']):
+        running_loss = 0.0
+        for batch in tqdm(trainloader):
+            # Extract inputs and ground truth labels as done in saliency.py
+            inputs, _, _, _, _, gt_labels, _ = batch  # gt_labels is positioned as in saliency.py
+            inputs = inputs.to(device)
+            gt_labels = gt_labels.to(device).float()  # Ensure ground truth is in the correct format
+
+            # teacher and student outputs
+            with torch.no_grad():
+                teacher_output = teacher_model(inputs)
+            student_output = student_model(inputs)
+
+            # Resize student output to match teacher output dimensions if needed
+            if student_output.shape != teacher_output.shape:
+                student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear', align_corners=False)
+
+            # Ensuring gt_labels have one channel and resize to match output dimensions
+            gt_labels = gt_labels[:, :1, :, :]  # only one channel if gt_labels have multiple channels
+            gt_labels = F.interpolate(gt_labels, size=student_output.shape[2:], mode='bilinear', align_corners=False)
+
+            # Compute hybrid loss with distillation and supervised components
+            loss = criterion(student_output, teacher_output, ground_truth=gt_labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {running_loss / len(trainloader):.4f}")
+
+        # Save images for visualization
+        save_visualization(inputs, student_output, teacher_output, output_dir, epoch)
+
+    print("Training completed.")
 
 def save_visualization(inputs, student_output, teacher_output, output_dir, epoch):
     # Create subdirectories for each epoch and for each type of output

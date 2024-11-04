@@ -22,7 +22,7 @@ from misc import batch_apply_bilateral_solver, set_seed, load_config, Logger
 
 from datasets.datasets import build_dataset
 
-from distillation.distillation_trainer import distillation_training
+from distillation.distillation_trainer import distillation_training, undeviating_distillation_training, hybrid_distillation_training
 from models.student_base_model import StudentModel
 
 
