@@ -2,12 +2,13 @@ import os
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
-from tqdm import tqdm
-from .distillation_loss import DistillationLoss
-from .undeviating_distillation_loss import UndeviatingDistillationLoss
-from .hybrid_distillation_loss import HybridDistillationLoss
 from torchvision import transforms
-
+from tqdm import tqdm
+from distillation.loss_functions.distillation_loss import DistillationLoss
+from distillation.loss_functions.undeviating_distillation_loss import UndeviatingDistillationLoss
+from distillation.loss_functions.hybrid_distillation_loss import HybridDistillationLoss
+from distillation.loss_functions.enhanced_hybrid_distillation_loss import EnhancedHybridDistillationLoss
+import copy
 
 def distillation_training(teacher_model, student_model, trainloader, config):
     # Set models
@@ -106,6 +107,8 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
                 teacher_output = teacher_model(inputs)
             student_output = student_model(inputs)
 
+            # Debugging Shapes
+
             # Resize student output to match teacher output dimensions if they don't match
             if student_output.shape != teacher_output.shape:
                 student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear', align_corners=False)
@@ -154,60 +157,79 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
     teacher_model.to(device)
     student_model.to(device)
 
-    # hybrid loss and optimizer
-    criterion = HybridDistillationLoss(
-        alpha=config["alpha"],
-        temperature=config["temperature"],
-        beta=config.get("beta", 0.5)  # beta for supervised loss weight
-    )
+    # Initialize loss and optimizer
+    criterion = HybridDistillationLoss(alpha=config["alpha"], temperature=config["temperature"])
     optimizer = optim.Adam(student_model.parameters(), lr=config['learning_rate'])
 
-    # output directory for predictions
+    # Output directories for predictions and checkpoints
     output_dir = './outputs/KD_epoch_out'
+    checkpoint_dir = './outputs/checkpoints'
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    # Early stopping and checkpoint variables
+    best_loss = float('inf')
+    best_model_weights = copy.deepcopy(student_model.state_dict())
+    patience_counter = 0
 
     # Training loop
     for epoch in range(config['epochs']):
         running_loss = 0.0
         for batch in tqdm(trainloader):
             # Extract inputs and ground truth labels
-            inputs, _, _, _, _, gt_labels, _ = batch  # gt_labels is positioned as in saliency.py
-            inputs = inputs.to(device)
-            gt_labels = gt_labels.to(device).float()  # Ensure ground truth is in the correct format
+            inputs, _, _, _, _, gt_labels, _ = batch  # gt_labels should match the layout from your dataloader
+            inputs, gt_labels = inputs.to(device), gt_labels.to(device).float()
 
             # Teacher outputs
             with torch.no_grad():
                 teacher_output = teacher_model(inputs)
-                # Apply sigmoid to get binary predictions
-                teacher_output = torch.sigmoid(teacher_output) > 0.5  # Binarize teacher output
+                # teacher_output = torch.sigmoid(teacher_output) > 0.5  # Apply threshold for binary predictions
 
             # Student outputs
             student_output = student_model(inputs)
-            # Resize student output to match teacher output dimensions if needed
             if student_output.shape != teacher_output.shape:
-                student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear',
-                                               align_corners=False)
+                student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear', align_corners=False)
+            student_output_binary = torch.sigmoid(student_output) > 0.5  # Apply threshold for binary predictions
 
-            # Binarize student output
-            student_output_binary = torch.sigmoid(student_output) > 0.5  # Binarize student output
+            # Apply bilateral filtering if configured
+            # if config.get("apply_bilateral_filter", False):
+            #     student_output_binary = apply_bilateral_filter(student_output_binary)
 
-            # gt_labels have one channel and resize to match output dimensions
-            gt_labels = gt_labels[:, :1, :, :]  # Only one channel if gt_labels have multiple channels
+            # Resize ground truth labels to match student/teacher dimensions
+            gt_labels = gt_labels[:, :1, :, :]
             gt_labels = F.interpolate(gt_labels, size=student_output.shape[2:], mode='bilinear', align_corners=False)
 
-            # Compute hybrid loss with distillation and supervised components
-            loss = criterion(student_output, teacher_output.float(), ground_truth=gt_labels.float())
+            # Compute hybrid loss using processed student and teacher predictions, and ground truth
+            loss = criterion(student_output, student_output_binary.float(), teacher_output.float(), ground_truth=gt_labels.float())
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
 
-        print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {running_loss / len(trainloader):.4f}")
+        epoch_loss = running_loss / len(trainloader)
+        print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {epoch_loss:.4f}")
 
-        # Save images for visualization
-        save_visualization(inputs, student_output_binary.float(), teacher_output.float(), output_dir, epoch)
+        # Save visualizations of inputs, student predictions, and teacher predictions
+        save_visualization(inputs, student_output, teacher_output, output_dir, epoch)
 
+        # Check if this epoch has the best loss and save the model if it does
+        if epoch_loss < best_loss:
+            best_loss = epoch_loss
+            best_model_weights = copy.deepcopy(student_model.state_dict())
+            torch.save(best_model_weights, os.path.join(checkpoint_dir, 'best_student_model.pth'))
+            print("Saved best model with loss:", best_loss)
+            patience_counter = 0
+        else:
+            patience_counter += 1
+
+        # Early stopping if patience counter exceeds limit
+        if patience_counter >= config['patience']:
+            print("Early stopping due to no improvement in loss.")
+            break
+
+    # Load best model weights
+    student_model.load_state_dict(best_model_weights)
     print("Training completed.")
 
 def save_visualization(inputs, student_output, teacher_output, output_dir, epoch):
