@@ -405,17 +405,18 @@ def main():
 
         ########## Training with Knowledge Distillation ##########
         print("Starting distillation training...")
-        distillation_training(
+        undeviating_distillation_training(
             teacher_model=teacher_model,
             student_model=student_model,
             trainloader=torch.utils.data.DataLoader(
-                dataset, batch_size=config.training["batch_size"], shuffle=True, num_workers=2
+                dataset, batch_size=config.distillation["batch_size"], shuffle=True, num_workers=2
             ),
             config={
-                "learning_rate": config.training["lr0"],
-                "epochs": config.training["nb_epochs"],
+                "learning_rate": config.distillation["lr1"],
+                "epochs": config.distillation["nb_epochs"],
                 "alpha": config.distillation["alpha"],
                 "temperature": config.distillation["temperature"],
+                "patience": config.distillation["patience"],
             }
         )
         student_model_path = os.path.join(output_dir, "student_model_final.pth")

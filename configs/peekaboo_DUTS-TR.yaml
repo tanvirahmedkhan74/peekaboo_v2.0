@@ -29,8 +29,11 @@ training:
 
 # Distillation-specific hyperparameters
 distillation:
-  alpha: 0.5               # Weight for distillation loss
-  temperature: 3.0         # Temperature for softening teacher output
+  alpha: 1               # Weight for distillation loss
+  temperature: 5.0       # Temperature for softening teacher output
+  batch_size: 50
+  lr1: 5e-4
+  nb_epochs: 100
 
 evaluation:
   type: saliency

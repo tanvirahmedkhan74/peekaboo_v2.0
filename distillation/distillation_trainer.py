@@ -80,12 +80,19 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
     criterion = UndeviatingDistillationLoss(alpha=config["alpha"], temperature=config["temperature"])
     optimizer = optim.Adam(student_model.parameters(), lr=config['learning_rate'])
 
-    # output directory for predictions
+    # Output directory for predictions and checkpoints
     output_dir = './outputs/KD_epoch_out'
+    checkpoint_dir = './outputs/checkpoints'
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Set up transformation to convert tensor to PIL image
     to_pil = transforms.ToPILImage()
+
+    # Early stopping and checkpoint variables
+    best_loss = float('inf')
+    best_model_weights = copy.deepcopy(student_model.state_dict())
+    patience_counter = 0
 
     # Training loop
     for epoch in range(config['epochs']):
@@ -111,11 +118,29 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
 
             running_loss += loss.item()
 
-        print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {running_loss / len(trainloader):.4f}")
+        epoch_loss = running_loss / len(trainloader)
+        print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {epoch_loss:.4f}")
 
         # Save images for visualization
         save_visualization(inputs, student_output, teacher_output, output_dir, epoch)
 
+        # Check if this epoch has the best loss and save the model if it does
+        if epoch_loss < best_loss:
+            best_loss = epoch_loss
+            best_model_weights = copy.deepcopy(student_model.state_dict())
+            torch.save(best_model_weights, os.path.join(checkpoint_dir, 'best_student_model.pth'))
+            print("Saved best model with loss:", best_loss)
+            patience_counter = 0  # Reset patience counter if loss improves
+        else:
+            patience_counter += 1  # Increment if no improvement
+
+        # Early stopping if patience counter exceeds limit
+        if patience_counter >= config['patience']:
+            print("Early stopping due to no improvement in loss.")
+            break
+
+    # Load best model weights
+    student_model.load_state_dict(best_model_weights)
     print("Training completed.")
 
 
