@@ -195,9 +195,12 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
             # if config.get("apply_bilateral_filter", False):
             #     student_output_binary = apply_bilateral_filter(student_output_binary)
 
-            # Resize ground truth labels to match student/teacher dimensions
+            # Check if gt_labels has only three dimensions, and add a channel dimension if needed
+            if gt_labels.dim() == 3:
+                gt_labels = gt_labels.unsqueeze(1)  # Adds a channel dimension at index 1
+
+            # Now you can safely apply the original slicing
             gt_labels = gt_labels[:, :1, :, :]
-            gt_labels = F.interpolate(gt_labels, size=student_output.shape[2:], mode='bilinear', align_corners=False)
 
             # Compute hybrid loss using processed student and teacher predictions, and ground truth
             loss = criterion(student_output, student_output_binary.float(), teacher_output.float(), ground_truth=gt_labels.float())
