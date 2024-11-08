@@ -241,11 +241,13 @@ def save_visualization(inputs, student_output, teacher_output, output_dir, epoch
     inputs_dir = os.path.join(epoch_dir, "inputs")
     student_dir = os.path.join(epoch_dir, "student")
     teacher_dir = os.path.join(epoch_dir, "teacher")
-    
+    binarized_dir = os.path.join(epoch_dir, "student_binarized")
+
     os.makedirs(inputs_dir, exist_ok=True)
     os.makedirs(student_dir, exist_ok=True)
     os.makedirs(teacher_dir, exist_ok=True)
-    
+    os.makedirs(binarized_dir, exist_ok=True)
+
     # Create ground truth directory if ground truth is provided
     if ground_truth is not None:
         gt_dir = os.path.join(epoch_dir, "ground_truth")
@@ -255,12 +257,14 @@ def save_visualization(inputs, student_output, teacher_output, output_dir, epoch
     inputs = inputs.squeeze().cpu()
     student_output = student_output.squeeze().cpu()
     teacher_output = teacher_output.squeeze().cpu()
+    student_binarized = (student_output > 0.5).float()  # Apply threshold for binarized output
     if ground_truth is not None:
         ground_truth = ground_truth.squeeze().cpu()
 
-    # Resize student, teacher, and ground truth outputs to match the dimensions of inputs
+    # Resize outputs to match the dimensions of inputs
     student_output = F.interpolate(student_output.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
     teacher_output = F.interpolate(teacher_output.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
+    student_binarized = F.interpolate(student_binarized.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
     if ground_truth is not None:
         ground_truth = F.interpolate(ground_truth.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
 
@@ -269,6 +273,7 @@ def save_visualization(inputs, student_output, teacher_output, output_dir, epoch
     inputs = (inputs - inputs.min()) / (inputs.max() - inputs.min() + 1e-5)
     student_output = (student_output - student_output.min()) / (student_output.max() - student_output.min() + 1e-5)
     teacher_output = (teacher_output - teacher_output.min()) / (teacher_output.max() - teacher_output.min() + 1e-5)
+    student_binarized = (student_binarized - student_binarized.min()) / (student_binarized.max() - student_binarized.min() + 1e-5)
     if ground_truth is not None:
         ground_truth = (ground_truth - ground_truth.min()) / (ground_truth.max() - ground_truth.min() + 1e-5)
 
@@ -277,10 +282,12 @@ def save_visualization(inputs, student_output, teacher_output, output_dir, epoch
         input_image = to_pil(inputs[i])
         student_image = to_pil(student_output[i])
         teacher_image = to_pil(teacher_output[i])
+        binarized_image = to_pil(student_binarized[i])
 
         input_image.save(os.path.join(inputs_dir, f"input_{i + 1}.png"))
         student_image.save(os.path.join(student_dir, f"student_{i + 1}.png"))
         teacher_image.save(os.path.join(teacher_dir, f"teacher_{i + 1}.png"))
+        binarized_image.save(os.path.join(binarized_dir, f"student_binarized_{i + 1}.png"))
 
         # Save ground truth if provided
         if ground_truth is not None:
