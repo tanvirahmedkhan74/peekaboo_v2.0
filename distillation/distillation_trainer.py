@@ -68,26 +68,38 @@ def distillation_training(teacher_model, student_model, trainloader, config):
     print("Training completed.")
 
 def undeviating_distillation_training(teacher_model, student_model, trainloader, config):
-    # Set models
-    teacher_model.eval()  # Teacher in eval mode
-    student_model.train()  # Student in training mode
+    """
+    Train the student model using distillation from the teacher model.
 
-    # Move to device
+    Args:
+        teacher_model (nn.Module): The teacher model.
+        student_model (nn.Module): The student model to be trained.
+        trainloader (DataLoader): DataLoader containing the training data.
+        config (dict): A dictionary containing hyperparameters and configuration for training.
+
+    Returns:
+        nn.Module: The trained student model.
+    """
+    # Set models to appropriate modes
+    teacher_model.eval()  # Teacher in eval mode (no gradients)
+    student_model.train()  # Student in train mode (gradients enabled)
+
+    # Move models to device (CPU or GPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     teacher_model.to(device)
     student_model.to(device)
 
-    # Define loss and optimizer
+    # Define loss function and optimizer
     criterion = UndeviatingDistillationLoss(alpha=config["alpha"], temperature=config["temperature"])
     optimizer = optim.Adam(student_model.parameters(), lr=config['learning_rate'])
 
-    # Output directory for predictions and checkpoints
+    # Directories for saving outputs and checkpoints
     output_dir = './outputs/KD_epoch_out'
     checkpoint_dir = './outputs/checkpoints'
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(checkpoint_dir, exist_ok=True)
 
-    # Set up transformation to convert tensor to PIL image
+    # Set up transformation for visualization (optional)
     to_pil = transforms.ToPILImage()
 
     # Early stopping and checkpoint variables
@@ -99,17 +111,15 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
     for epoch in range(config['epochs']):
         running_loss = 0.0
         for batch in tqdm(trainloader):
-            inputs = batch[0]  # Only using inputs since there are no labels
+            inputs = batch[0]  # Assuming batch[0] contains the input data (no labels)
             inputs = inputs.to(device)
 
-            # Get teacher and student outputs
+            # Get outputs from teacher (no gradients required) and student
             with torch.no_grad():
                 teacher_output = teacher_model(inputs)
             student_output = student_model(inputs)
 
-            # Debugging Shapes
-
-            # Resize student output to match teacher output dimensions if they don't match
+            # Resize student output to match teacher output dimensions (if needed)
             if student_output.shape != teacher_output.shape:
                 student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear', align_corners=False)
 
@@ -121,13 +131,13 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
 
             running_loss += loss.item()
 
+        # Calculate average loss for the epoch
         epoch_loss = running_loss / len(trainloader)
         print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {epoch_loss:.4f}")
 
-        # Save images for visualization
+        # Save visualization for this epoch (optional)
         save_visualization(inputs, student_output, teacher_output, output_dir, epoch)
 
-        # Check if this epoch has the best loss and save the model if it does
         if epoch_loss < best_loss:
             best_loss = epoch_loss
             best_model_weights = copy.deepcopy(student_model.state_dict())
@@ -142,9 +152,11 @@ def undeviating_distillation_training(teacher_model, student_model, trainloader,
             print("Early stopping due to no improvement in loss.")
             break
 
-    # Load best model weights
+    # Load best model weights after training
     student_model.load_state_dict(best_model_weights)
     print("Training completed.")
+
+    return student_model
 
 
 def hybrid_distillation_training(teacher_model, student_model, trainloader, config):
