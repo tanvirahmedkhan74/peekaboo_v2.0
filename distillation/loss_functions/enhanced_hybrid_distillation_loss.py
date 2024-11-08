@@ -2,8 +2,8 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch
 
-from dice_loss import DiceLoss
-from focal_loss import FocalLoss
+from .dice_loss import DiceLoss
+from .focal_loss import FocalLoss
 
 class EnhancedHybridDistillationLoss(nn.Module):
     def __init__(self, alpha=0.5, temperature=3.0, dice_weight=0.3, focal_weight=0.2):
