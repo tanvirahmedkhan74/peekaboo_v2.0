@@ -199,23 +199,28 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
 
             # Student outputs
             student_output = student_model(inputs)
+
+            # Interpolate student output to match teacher output shape
             if student_output.shape != teacher_output.shape:
                 student_output = F.interpolate(student_output, size=teacher_output.shape[2:], mode='bilinear', align_corners=False)
+
+            # Binarize student output after interpolation
             student_output_binary = torch.sigmoid(student_output) > 0.5  # Apply threshold for binary predictions
+
+            # Interpolate binarized student output to match the ground truth shape
+            # Ensure ground truth has a channel dimension (1 channel for binary masks)
+            if gt_labels.dim() == 3:
+                gt_labels = gt_labels.unsqueeze(1)  # Adds a channel dimension at index 1 (batch_size, 1, height, width)
+
+            # Now interpolate the binary student output to match the ground truth dimensions
+            student_output_binary_resized = F.interpolate(student_output_binary.float(), size=gt_labels.shape[2:], mode='nearest')
 
             # Apply bilateral filtering if configured
             # if config.get("apply_bilateral_filter", False):
-            #     student_output_binary = apply_bilateral_filter(student_output_binary)
-
-            # Check if gt_labels has only three dimensions, and add a channel dimension if needed
-            if gt_labels.dim() == 3:
-                gt_labels = gt_labels.unsqueeze(1)  # Adds a channel dimension at index 1
-
-            # Now you can safely apply the original slicing
-            gt_labels = gt_labels[:, :1, :, :]
+            #     student_output_binary_resized = apply_bilateral_filter(student_output_binary_resized)
 
             # Compute hybrid loss using processed student and teacher predictions, and ground truth
-            loss = criterion(student_output, student_output_binary.float(), teacher_output.float(), ground_truth=gt_labels.float())
+            loss = criterion(student_output, student_output_binary_resized.float(), teacher_output.float(), ground_truth=gt_labels.float())
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
