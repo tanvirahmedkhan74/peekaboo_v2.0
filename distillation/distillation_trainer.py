@@ -211,7 +211,7 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
         print(f"Epoch [{epoch + 1}/{config['epochs']}], Loss: {epoch_loss:.4f}")
 
         # Save visualizations of inputs, student predictions, and teacher predictions
-        save_visualization(inputs, student_output, teacher_output, output_dir, epoch)
+        save_visualization(inputs, student_output, teacher_output, output_dir, epoch, ground_truth=gt_labels)
 
         # Check if this epoch has the best loss and save the model if it does
         if epoch_loss < best_loss:
@@ -232,31 +232,42 @@ def hybrid_distillation_training(teacher_model, student_model, trainloader, conf
     student_model.load_state_dict(best_model_weights)
     print("Training completed.")
 
-def save_visualization(inputs, student_output, teacher_output, output_dir, epoch):
+def save_visualization(inputs, student_output, teacher_output, output_dir, epoch, ground_truth=None):
     # Create subdirectories for each epoch and for each type of output
     epoch_dir = os.path.join(output_dir, f"epoch_{epoch + 1}")
     inputs_dir = os.path.join(epoch_dir, "inputs")
     student_dir = os.path.join(epoch_dir, "student")
     teacher_dir = os.path.join(epoch_dir, "teacher")
-
+    
     os.makedirs(inputs_dir, exist_ok=True)
     os.makedirs(student_dir, exist_ok=True)
     os.makedirs(teacher_dir, exist_ok=True)
+    
+    # Create ground truth directory if ground truth is provided
+    if ground_truth is not None:
+        gt_dir = os.path.join(epoch_dir, "ground_truth")
+        os.makedirs(gt_dir, exist_ok=True)
 
     # Move tensors to CPU and convert to images
     inputs = inputs.squeeze().cpu()
     student_output = student_output.squeeze().cpu()
     teacher_output = teacher_output.squeeze().cpu()
+    if ground_truth is not None:
+        ground_truth = ground_truth.squeeze().cpu()
 
-    # Resize student and teacher outputs to match the dimensions of inputs
+    # Resize student, teacher, and ground truth outputs to match the dimensions of inputs
     student_output = F.interpolate(student_output.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
     teacher_output = F.interpolate(teacher_output.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
+    if ground_truth is not None:
+        ground_truth = F.interpolate(ground_truth.unsqueeze(0), size=inputs.shape[-2:], mode='bilinear', align_corners=False).squeeze(0)
 
     # Normalize and convert to PIL images
     to_pil = transforms.ToPILImage()
     inputs = (inputs - inputs.min()) / (inputs.max() - inputs.min() + 1e-5)
     student_output = (student_output - student_output.min()) / (student_output.max() - student_output.min() + 1e-5)
     teacher_output = (teacher_output - teacher_output.min()) / (teacher_output.max() - teacher_output.min() + 1e-5)
+    if ground_truth is not None:
+        ground_truth = (ground_truth - ground_truth.min()) / (ground_truth.max() - ground_truth.min() + 1e-5)
 
     # Save images in the appropriate directories
     for i in range(inputs.shape[0]):  # Loop through each image in the batch
@@ -267,5 +278,10 @@ def save_visualization(inputs, student_output, teacher_output, output_dir, epoch
         input_image.save(os.path.join(inputs_dir, f"input_{i + 1}.png"))
         student_image.save(os.path.join(student_dir, f"student_{i + 1}.png"))
         teacher_image.save(os.path.join(teacher_dir, f"teacher_{i + 1}.png"))
+
+        # Save ground truth if provided
+        if ground_truth is not None:
+            gt_image = to_pil(ground_truth[i])
+            gt_image.save(os.path.join(gt_dir, f"ground_truth_{i + 1}.png"))
 
     print(f"Saved images for epoch {epoch + 1} in {epoch_dir}.")
